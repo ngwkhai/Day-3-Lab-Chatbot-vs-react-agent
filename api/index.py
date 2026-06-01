@@ -211,22 +211,22 @@ INDEX_HTML = """<!DOCTYPE html>
 <title>Chatbot vs ReAct Agent</title>
 <style>
   :root {
-    --bg: #0b1020;
-    --panel: #141b32;
-    --panel-2: #1b2440;
-    --border: #283358;
-    --text: #e6ebff;
-    --muted: #94a0c4;
-    --accent: #6d8cff;
-    --accent-2: #38d39f;
-    --warn: #ffb454;
-    --err: #ff6b81;
+    --bg: #faf8f2;
+    --panel: #fffdf8;
+    --panel-2: #f4f0e6;
+    --border: #e6e0d2;
+    --text: #2c2a26;
+    --muted: #8c8675;
+    --accent: #5b7cf0;
+    --accent-2: #1fa97f;
+    --warn: #cf8a2c;
+    --err: #d9536a;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
-    background: radial-gradient(1200px 600px at 80% -10%, #1c2647 0%, var(--bg) 55%);
+    background: radial-gradient(1200px 600px at 80% -10%, #fffefb 0%, var(--bg) 55%);
     color: var(--text);
     min-height: 100vh;
   }
@@ -257,6 +257,7 @@ INDEX_HTML = """<!DOCTYPE html>
     outline: none;
   }
   select:focus, input:focus, textarea:focus { border-color: var(--accent); }
+  option:disabled { color: #b8b2a2; }
   textarea { width: 100%; resize: vertical; min-height: 64px; }
   .row { display: flex; gap: 10px; margin-top: 12px; }
   .row textarea { flex: 1; }
@@ -314,7 +315,7 @@ INDEX_HTML = """<!DOCTYPE html>
         <label for="provider">Provider</label>
         <select id="provider">
           <option value="openai">OpenAI</option>
-          <option value="google">Google Gemini</option>
+          <option value="google" disabled>Google Gemini (không khả dụng)</option>
         </select>
       </div>
       <div class="field">
