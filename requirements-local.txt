@@ -1,0 +1,7 @@
+# Extra dependency for the LOCAL GGUF provider (DEFAULT_PROVIDER=local).
+# Kept out of requirements.txt because llama-cpp-python cannot run on Vercel's
+# serverless runtime (it needs a model file on disk and is too large).
+#
+# Install only if you want to run a local model:
+#   pip install -r requirements.txt -r requirements-local.txt
+llama-cpp-python>=0.2.0

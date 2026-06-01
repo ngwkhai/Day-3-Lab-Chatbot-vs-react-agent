@@ -1,0 +1,11 @@
+.venv
+venv
+logs
+models
+report
+tests
+*.gguf
+.env
+.git
+__pycache__
+*.pyc
