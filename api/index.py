@@ -85,10 +85,36 @@ class _EventCapture(logging.Handler):
             pass
 
 
-def run_chatbot(provider, question):
+# Keep only the most recent turns so prompts stay small (token budget / timeout).
+MAX_HISTORY_TURNS = 6
+
+
+def _format_history(history):
+    """Turn a [{role, content}] list into a plain-text transcript for prompting.
+
+    Both providers expose a single-prompt `generate(prompt, system_prompt)` API,
+    so multi-turn context is embedded as text rather than a structured message list.
+    """
+    if not history:
+        return ""
+    turns = history[-MAX_HISTORY_TURNS * 2:]
+    lines = []
+    for turn in turns:
+        role = (turn.get("role") or "user").lower()
+        content = (turn.get("content") or "").strip()
+        if not content:
+            continue
+        speaker = "User" if role == "user" else "Assistant"
+        lines.append(f"{speaker}: {content}")
+    return "\n".join(lines)
+
+
+def run_chatbot(provider, question, history=None):
     """One LLM call, no tools -- the baseline the agent is compared against."""
     start = time.time()
-    result = provider.generate(question, system_prompt=CHATBOT_SYSTEM_PROMPT)
+    convo = _format_history(history)
+    prompt = f"{convo}\nUser: {question}" if convo else question
+    result = provider.generate(prompt, system_prompt=CHATBOT_SYSTEM_PROMPT)
     usage = result.get("usage", {})
     tracker.track_request(
         provider=result.get("provider", "unknown"),
@@ -104,10 +130,18 @@ def run_chatbot(provider, question):
     }
 
 
-def run_agent(provider, question, prompt_version="v2", max_steps=6):
+def run_agent(provider, question, prompt_version="v2", max_steps=6, history=None):
     capture = _EventCapture()
     logger.logger.addHandler(capture)
     start = time.time()
+    convo = _format_history(history)
+    # Give the agent prior context, but keep the actual task clearly marked so the
+    # ReAct loop still answers the latest question.
+    user_input = (
+        f"Conversation so far:\n{convo}\n\nCurrent question: {question}"
+        if convo
+        else question
+    )
     try:
         agent = ReActAgent(
             llm=provider,
@@ -115,7 +149,7 @@ def run_agent(provider, question, prompt_version="v2", max_steps=6):
             max_steps=max_steps,
             prompt_version=prompt_version,
         )
-        answer = agent.run(question)
+        answer = agent.run(user_input)
     finally:
         logger.logger.removeHandler(capture)
 
@@ -180,6 +214,9 @@ def ask():
     provider_name = body.get("provider")
     prompt_version = body.get("prompt_version", "v2")
     max_steps = int(body.get("max_steps", 6))
+    history = body.get("history") or []
+    if not isinstance(history, list):
+        history = []
 
     try:
         provider = _get_provider(provider_name)
@@ -189,9 +226,9 @@ def ask():
     response = {"question": question, "provider": (provider_name or os.getenv("DEFAULT_PROVIDER", "openai")).lower()}
     try:
         if mode in ("both", "chatbot"):
-            response["chatbot"] = run_chatbot(provider, question)
+            response["chatbot"] = run_chatbot(provider, question, history)
         if mode in ("both", "agent"):
-            response["agent"] = run_agent(provider, question, prompt_version, max_steps)
+            response["agent"] = run_agent(provider, question, prompt_version, max_steps, history)
     except Exception as e:  # noqa: BLE001 - LLM/network errors -> readable message
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 502
 
@@ -301,12 +338,42 @@ INDEX_HTML = """<!DOCTYPE html>
   @keyframes spin { to { transform: rotate(360deg); } }
   .err-box { color: var(--err); }
   footer { text-align: center; color: var(--muted); font-size: 12px; padding: 24px; }
+
+  /* ---- Conversation ---- */
+  .chat {
+    display: flex; flex-direction: column; gap: 14px;
+    min-height: 240px; max-height: 56vh; overflow-y: auto;
+    padding: 6px 4px 4px; margin-bottom: 8px;
+  }
+  .msg { display: flex; flex-direction: column; max-width: 86%; }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.assistant { align-self: flex-start; align-items: flex-start; }
+  .who { font-size: 11px; color: var(--muted); margin: 0 4px 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .bubble {
+    border-radius: 14px; padding: 11px 14px; font-size: 14.5px; line-height: 1.55;
+    white-space: pre-wrap; border: 1px solid var(--border); background: var(--panel-2);
+  }
+  .msg.user .bubble {
+    background: linear-gradient(180deg, var(--accent), #4f6fe6); color: #fff; border-color: transparent;
+    border-bottom-right-radius: 4px;
+  }
+  .msg.assistant .bubble { border-bottom-left-radius: 4px; }
+  .bubble.agent { border-color: rgba(31,169,127,0.45); }
+  .bubble.error { border-color: var(--err); color: var(--err); }
+  .b-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .b-meta { color: var(--muted); font-size: 11.5px; margin-top: 6px; }
+  .empty-state { color: var(--muted); font-style: italic; text-align: center; margin: auto; }
+  .ghost {
+    background: transparent; color: var(--muted); border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 14px; font-weight: 500;
+  }
+  .ghost:hover { color: var(--text); border-color: var(--accent); }
 </style>
 </head>
 <body>
 <header>
   <h1>Chatbot vs ReAct Agent</h1>
-  <div class="sub">Hỏi một câu về phim/TV. So sánh chatbot không công cụ (dễ "bịa" số liệu) với ReAct agent dùng TVmaze API.</div>
+  <div class="sub">Trò chuyện nhiều lượt về phim/TV. So sánh chatbot không công cụ (dễ "bịa" số liệu) với ReAct agent dùng TVmaze API. Ngữ cảnh được giữ qua các câu hỏi.</div>
 </header>
 <main>
   <div class="card">
@@ -333,26 +400,21 @@ INDEX_HTML = """<!DOCTYPE html>
           <option value="agent">Agent only</option>
         </select>
       </div>
+      <div class="field" style="margin-left:auto;">
+        <label>&nbsp;</label>
+        <button id="clear" class="ghost" type="button">Cuộc trò chuyện mới</button>
+      </div>
     </div>
+
+    <div class="chat" id="chat">
+      <div class="empty-state" id="empty">Bắt đầu cuộc trò chuyện — hỏi một câu về phim/TV. Agent nhớ ngữ cảnh các câu trước.</div>
+    </div>
+
     <div class="row">
-      <textarea id="question" placeholder="Ví dụ: Which has a higher TVmaze rating, Breaking Bad or Game of Thrones?"></textarea>
-      <button id="ask">Ask</button>
+      <textarea id="question" placeholder="Nhập tin nhắn… (Ctrl/⌘ + Enter để gửi)"></textarea>
+      <button id="ask">Gửi</button>
     </div>
     <div class="chips" id="chips"></div>
-  </div>
-
-  <div class="grid">
-    <div class="card result">
-      <h2>Chatbot <span class="badge base">no tools</span></h2>
-      <div class="meta" id="cb-meta">—</div>
-      <div class="answer" id="cb-answer"><span class="placeholder">Câu trả lời sẽ hiện ở đây.</span></div>
-    </div>
-    <div class="card result">
-      <h2>ReAct Agent <span class="badge agent">TVmaze tools</span></h2>
-      <div class="meta" id="ag-meta">—</div>
-      <div class="answer final" id="ag-answer"><span class="placeholder">Câu trả lời + chuỗi suy luận sẽ hiện ở đây.</span></div>
-      <div class="trace" id="ag-trace"></div>
-    </div>
   </div>
 </main>
 <footer>Lab 3 · Agentic AI · TVmaze API (no key)</footer>
@@ -365,17 +427,30 @@ const DEMOS = [
 ];
 const $ = (id) => document.getElementById(id);
 
+// Running conversation context sent back to the server on every turn.
+let history = [];
+
 const chips = $("chips");
 DEMOS.forEach((q) => {
   const c = document.createElement("span");
   c.className = "chip";
   c.textContent = q;
-  c.onclick = () => { $("question").value = q; };
+  c.onclick = () => { $("question").value = q; $("question").focus(); };
   chips.appendChild(c);
 });
 
 function esc(s) {
   return (s ?? "").toString().replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
+}
+
+function scrollToBottom() {
+  const chat = $("chat");
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function hideEmpty() {
+  const e = $("empty");
+  if (e) e.remove();
 }
 
 function renderTrace(trace) {
@@ -389,7 +464,45 @@ function renderTrace(trace) {
     if (s.final_answer) html += `<div class="act"><b>Final:</b> ${esc(s.final_answer)}</div>`;
     return html + `</div>`;
   }).join("");
-  return `<details open><summary>Reasoning trace (${trace.length} steps)</summary>${steps}</details>`;
+  return `<div class="trace"><details><summary>Reasoning trace (${trace.length} steps)</summary>${steps}</details></div>`;
+}
+
+function addUserMessage(text) {
+  hideEmpty();
+  const wrap = document.createElement("div");
+  wrap.className = "msg user";
+  wrap.innerHTML = `<div class="who">Bạn</div><div class="bubble">${esc(text)}</div>`;
+  $("chat").appendChild(wrap);
+  scrollToBottom();
+}
+
+// Returns the container so we can replace its content when the response arrives.
+function addAssistantPlaceholder() {
+  hideEmpty();
+  const wrap = document.createElement("div");
+  wrap.className = "msg assistant";
+  wrap.innerHTML = `<div class="who">Trợ lý</div><div class="bubble"><span class="spinner"></span> Đang xử lý…</div>`;
+  $("chat").appendChild(wrap);
+  scrollToBottom();
+  return wrap;
+}
+
+function chatbotBubble(c) {
+  return `<div class="bubble">`
+    + `<div class="b-head"><span class="badge base">Chatbot · no tools</span></div>`
+    + `${esc(c.answer || "(empty)")}`
+    + `<div class="b-meta">${esc(c.model)} · ${esc(c.latency_ms)} ms · ${esc(c.total_tokens)} tokens</div>`
+    + `</div>`;
+}
+
+function agentBubble(a) {
+  return `<div class="bubble agent">`
+    + `<div class="b-head"><span class="badge agent">ReAct Agent · TVmaze tools</span></div>`
+    + `${esc(a.answer || "(empty)")}`
+    + `<div class="b-meta">${esc(a.model)} (${esc(a.prompt_version)}) · ${esc(a.steps)} steps · `
+    + `${esc(a.latency_ms)} ms · ${esc(a.total_tokens)} tokens · ${esc(a.status)}</div>`
+    + renderTrace(a.trace)
+    + `</div>`;
 }
 
 async function ask() {
@@ -397,12 +510,13 @@ async function ask() {
   if (!question) { $("question").focus(); return; }
   const mode = $("mode").value;
   const btn = $("ask");
-  btn.disabled = true; btn.textContent = "Running…";
+  btn.disabled = true; btn.textContent = "Đang gửi…";
 
-  const showCb = mode === "both" || mode === "chatbot";
-  const showAg = mode === "both" || mode === "agent";
-  if (showCb) { $("cb-meta").textContent = "…"; $("cb-answer").innerHTML = '<span class="spinner"></span>'; }
-  if (showAg) { $("ag-meta").textContent = "…"; $("ag-answer").innerHTML = '<span class="spinner"></span>'; $("ag-trace").innerHTML = ""; }
+  addUserMessage(question);
+  const sendHistory = history.slice();   // context BEFORE this turn
+  history.push({ role: "user", content: question });
+  $("question").value = "";
+  const slot = addAssistantPlaceholder();
 
   try {
     const res = await fetch("/api/ask", {
@@ -410,6 +524,7 @@ async function ask() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         question, mode,
+        history: sendHistory,
         provider: $("provider").value,
         prompt_version: $("version").value,
       }),
@@ -417,27 +532,34 @@ async function ask() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
 
-    if (data.chatbot) {
-      const c = data.chatbot;
-      $("cb-meta").textContent = `${c.model} · ${c.latency_ms} ms · ${c.total_tokens} tokens`;
-      $("cb-answer").textContent = c.answer || "(empty)";
-    }
-    if (data.agent) {
-      const a = data.agent;
-      $("ag-meta").textContent = `${a.model} (${a.prompt_version}) · ${a.steps} steps · ${a.latency_ms} ms · ${a.total_tokens} tokens · ${a.status}`;
-      $("ag-answer").textContent = a.answer || "(empty)";
-      $("ag-trace").innerHTML = renderTrace(a.trace);
-    }
+    let html = "";
+    if (data.chatbot) html += chatbotBubble(data.chatbot);
+    if (data.agent) html += agentBubble(data.agent);
+    slot.innerHTML = `<div class="who">Trợ lý</div>` + (html || `<div class="bubble">(empty)</div>`);
+
+    // Use the agent's grounded answer for context when available, else the chatbot's.
+    const assistantText = (data.agent && data.agent.answer) || (data.chatbot && data.chatbot.answer) || "";
+    history.push({ role: "assistant", content: assistantText });
+    scrollToBottom();
   } catch (e) {
-    const msg = `<span class="err-box">Error: ${esc(e.message)}</span>`;
-    if (showCb) $("cb-answer").innerHTML = msg;
-    if (showAg) $("ag-answer").innerHTML = msg;
+    slot.innerHTML = `<div class="who">Trợ lý</div><div class="bubble error">Lỗi: ${esc(e.message)}</div>`;
+    // Roll back the user turn so a failed request doesn't poison future context.
+    history.pop();
+    scrollToBottom();
   } finally {
-    btn.disabled = false; btn.textContent = "Ask";
+    btn.disabled = false; btn.textContent = "Gửi";
+    $("question").focus();
   }
 }
 
+function clearConversation() {
+  history = [];
+  $("chat").innerHTML = `<div class="empty-state" id="empty">Bắt đầu cuộc trò chuyện — hỏi một câu về phim/TV. Agent nhớ ngữ cảnh các câu trước.</div>`;
+  $("question").focus();
+}
+
 $("ask").onclick = ask;
+$("clear").onclick = clearConversation;
 $("question").addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") ask();
 });
