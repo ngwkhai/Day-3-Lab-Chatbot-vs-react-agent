@@ -18,19 +18,27 @@ def get_provider(provider_name: Optional[str] = None) -> LLMProvider:
             DEFAULT_PROVIDER env var, then 'openai'.
     """
     provider_name = (provider_name or os.getenv("DEFAULT_PROVIDER", "openai")).lower()
-    model = os.getenv("DEFAULT_MODEL")
+    default_model = os.getenv("DEFAULT_MODEL", "")
 
     if provider_name == "openai":
         from src.core.openai_provider import OpenAIProvider
 
-        # OpenAIProvider reads OPENAI_API_KEY / OPENAI_BASE_URL / DEFAULT_MODEL from env.
-        return OpenAIProvider()
+        # OPENAI_MODEL overrides; otherwise reuse DEFAULT_MODEL. OpenAIProvider
+        # falls back to its own default when model_name is None.
+        model = os.getenv("OPENAI_MODEL") or default_model or None
+        return OpenAIProvider(model_name=model)
 
     if provider_name in ("google", "gemini"):
         from src.core.gemini_provider import GeminiProvider
 
+        # Model names are NOT interchangeable across providers. Only reuse
+        # DEFAULT_MODEL for Gemini when it actually looks like a Gemini model,
+        # otherwise fall back to a sane Gemini default (override via GEMINI_MODEL).
+        model = os.getenv("GEMINI_MODEL")
+        if not model:
+            model = default_model if default_model.startswith("gemini") else "gemini-2.0-flash"
         return GeminiProvider(
-            model_name=model or "gemini-1.5-flash",
+            model_name=model,
             api_key=os.getenv("GEMINI_API_KEY"),
         )
 

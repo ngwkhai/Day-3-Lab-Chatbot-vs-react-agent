@@ -36,9 +36,17 @@ python api/index.py           # mở http://localhost:5000
 3. Framework Preset để **Other** (Vercel tự nhận `requirements.txt` + `api/`).
 4. Mục **Environment Variables**, thêm:
    - `DEFAULT_PROVIDER` = `openai` (hoặc `google`)
-   - `OPENAI_API_KEY` = `sk-...` (nếu dùng OpenAI)
-   - `DEFAULT_MODEL` = `gpt-4o-mini` (tuỳ chọn)
-   - `GEMINI_API_KEY` = `...` (nếu dùng Gemini)
+   - **Nếu dùng OpenAI / endpoint OpenAI-compatible:**
+     - `OPENAI_API_KEY` = `sk-...`
+     - `OPENAI_BASE_URL` = (chỉ đặt khi dùng proxy như opencode zen, vd `https://opencode.ai/zen/go/v1`; bỏ trống nếu dùng OpenAI chính thức)
+     - `OPENAI_MODEL` = `gpt-4o-mini` (tuỳ chọn; hoặc tên model của proxy, vd `deepseek-v4-flash`)
+   - **Nếu dùng Gemini:**
+     - `GEMINI_API_KEY` = `...`
+     - `GEMINI_MODEL` = `gemini-2.0-flash` (tuỳ chọn)
+
+   ⚠️ **Lưu ý:** `DEFAULT_MODEL` chỉ áp dụng cho OpenAI. Tên model **không dùng chung**
+   giữa các provider — đặt `gpt-4o-mini` cho Gemini sẽ gây lỗi `404 model not found`.
+   Hãy dùng `GEMINI_MODEL` / `OPENAI_MODEL` riêng cho từng provider.
 5. Bấm **Deploy**. Xong sẽ có URL dạng `https://<project>.vercel.app`.
 
 Mỗi lần push lên nhánh chính, Vercel tự build lại.
