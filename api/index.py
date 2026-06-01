@@ -46,8 +46,8 @@ CHATBOT_SYSTEM_PROMPT = (
 
 DEMO_QUESTIONS = [
     "Hôm nay có những phim nào đang chiếu?",
-    "Phim Mai có những suất chiếu nào và còn ghế không?",
-    "Đặt 2 vé phim Mai suất 17:30 cho Khai.",
+    "Có những suất chiếu nào và còn ghế không?",
+    "Đặt 2 vé suất 17:30",
 ]
 
 ALLOWED_PROVIDERS = {"openai", "google", "gemini"}
@@ -362,6 +362,13 @@ INDEX_HTML = """<!DOCTYPE html>
   .msg.assistant .bubble { border-bottom-left-radius: 4px; }
   .bubble.agent { border-color: rgba(31,169,127,0.45); }
   .bubble.error { border-color: var(--err); color: var(--err); }
+  .msg.system { align-self: stretch; max-width: 100%; align-items: stretch; }
+  .msg.system .who { color: var(--warn); text-align: center; }
+  .bubble.system {
+    background: #fbf3e3; border: 1px dashed #e3d3ad; color: #6b6450;
+    border-radius: 12px; font-size: 13.5px; line-height: 1.6;
+  }
+  .bubble.system b { color: #4a4636; }
   .b-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .b-meta { color: var(--muted); font-size: 11.5px; margin-top: 6px; }
   .empty-state { color: var(--muted); font-style: italic; text-align: center; margin: auto; }
@@ -426,6 +433,12 @@ const DEMOS = [
   "Đặt 2 vé phim Mai suất 17:30 cho Khai.",
   "Kiểm tra mã vé BK-ABC123",
 ];
+// System introduction (no LLM call) shown automatically on every visit.
+const SYSTEM_INTRO =
+  "<b>Chào mừng đến với CinemaBot</b> — hệ thống trợ lý đặt vé xem phim.<br>"
+  + "Đây là demo so sánh <b>Chatbot</b> (không công cụ) và <b>ReAct Agent</b> (có công cụ đặt vé).<br>"
+  + "Bạn có thể: xem phim đang chiếu, kiểm tra suất chiếu &amp; ghế trống, đặt vé và tra cứu mã vé.<br>"
+  + "Để đặt vé thật, hãy chọn chế độ <b>Agent</b> ở trên. Mọi tin nhắn được giữ ngữ cảnh trong cùng cuộc trò chuyện.";
 const WELCOME = "Xin chào! Mình là CinemaBot — trợ lý đặt vé phim của rạp. "
   + "Mình có thể giúp bạn:\n"
   + "• Xem các phim đang chiếu hôm nay\n"
@@ -474,12 +487,26 @@ function renderTrace(trace) {
   return `<div class="trace"><details><summary>Reasoning trace (${trace.length} steps)</summary>${steps}</details></div>`;
 }
 
+function renderSystemIntro() {
+  const wrap = document.createElement("div");
+  wrap.className = "msg system";
+  // SYSTEM_INTRO is a trusted constant (no user input), so inline HTML is safe.
+  wrap.innerHTML = `<div class="who">Hệ thống</div><div class="bubble system">${SYSTEM_INTRO}</div>`;
+  $("chat").appendChild(wrap);
+  scrollToBottom();
+}
+
 function renderWelcome() {
   const wrap = document.createElement("div");
   wrap.className = "msg assistant";
   wrap.innerHTML = `<div class="who">CinemaBot</div><div class="bubble">${esc(WELCOME)}</div>`;
   $("chat").appendChild(wrap);
   scrollToBottom();
+}
+
+function renderIntro() {
+  renderSystemIntro();
+  renderWelcome();
 }
 
 function addUserMessage(text) {
@@ -570,7 +597,7 @@ async function ask() {
 function clearConversation() {
   history = [];
   $("chat").innerHTML = "";
-  renderWelcome();
+  renderIntro();
   $("question").focus();
 }
 
@@ -580,8 +607,8 @@ $("question").addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") ask();
 });
 
-// Greet the user with an AI message as soon as the page loads.
-renderWelcome();
+// Auto-show the system introduction + greeting as soon as the page loads.
+renderIntro();
 </script>
 </body>
 </html>
