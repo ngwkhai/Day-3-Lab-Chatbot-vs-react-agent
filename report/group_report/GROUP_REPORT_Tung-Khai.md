@@ -1,11 +1,8 @@
 # Group Report: Lab 3 - Production-Grade Agentic System
 
-- **Team Name**: [TODO: your team name]
-- **Team Members**: [TODO: Member 1, Member 2, ...]
+- **Team Name**: Tung-Khai
+- **Team Members**: Mai Minh Tung - 2A202600923, Nguyen Dinh Khai - 2A202600671
 - **Deployment Date**: 2026-06-01
-
-> Domain: **TV shows / series** (real data via the public TVmaze API, no API key).
-> Rename this file to `GROUP_REPORT_[TEAM_NAME].md` before submitting.
 
 ---
 
@@ -159,6 +156,3 @@ the agent wins precisely there by grounding each number in a tool call.
   the tool count grows; cache TVmaze responses to cut latency and cost.
 
 ---
-
-> [!NOTE]
-> Submit this report by renaming it to `GROUP_REPORT_[TEAM_NAME].md` and placing it in this folder.

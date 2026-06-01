@@ -35,17 +35,19 @@ from src.tools import TOOLS
 
 app = Flask(__name__)
 
-# Baseline chatbot system prompt (mirrors chatbot.py so the comparison is fair).
+# Baseline chatbot system prompt (no tools) -- the cinema booking persona.
 CHATBOT_SYSTEM_PROMPT = (
-    "You are a helpful movie and TV assistant. Answer the user's question directly "
-    "and concisely. If a question requires multiple facts or calculations, do your best "
-    "to answer in a single response."
+    "Bạn là trợ lý đặt vé xem phim thân thiện của một rạp chiếu. Trả lời ngắn gọn, "
+    "lịch sự bằng tiếng Việt. Bạn KHÔNG có quyền truy cập hệ thống đặt vé thật, nên hãy "
+    "tư vấn dựa trên hiểu biết chung và nhắc khách rằng để xem suất chiếu/ghế chính xác "
+    "và đặt vé thì cần dùng chế độ Agent (có công cụ). Khi khách muốn đặt vé, hãy hỏi "
+    "đủ thông tin: tên phim, suất chiếu, số ghế và tên khách hàng."
 )
 
 DEMO_QUESTIONS = [
-    "How many total hours would it take to binge-watch all episodes of Breaking Bad?",
-    "Which has a higher TVmaze rating, Breaking Bad or Game of Thrones, and by how much?",
-    "What is the combined number of episodes of Breaking Bad and Stranger Things?",
+    "Hôm nay có những phim nào đang chiếu?",
+    "Phim Mai có những suất chiếu nào và còn ghế không?",
+    "Đặt 2 vé phim Mai suất 17:30 cho Khai.",
 ]
 
 ALLOWED_PROVIDERS = {"openai", "google", "gemini"}
@@ -245,7 +247,7 @@ INDEX_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Chatbot vs ReAct Agent</title>
+<title>CinemaBot · Trợ lý đặt vé phim</title>
 <style>
   :root {
     --bg: #faf8f2;
@@ -372,8 +374,8 @@ INDEX_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <h1>Chatbot vs ReAct Agent</h1>
-  <div class="sub">Trò chuyện nhiều lượt về phim/TV. So sánh chatbot không công cụ (dễ "bịa" số liệu) với ReAct agent dùng TVmaze API. Ngữ cảnh được giữ qua các câu hỏi.</div>
+  <h1>CinemaBot · Trợ lý đặt vé phim</h1>
+  <div class="sub">Trò chuyện để xem phim đang chiếu, kiểm tra suất &amp; ghế, và đặt vé. Chọn chế độ <b>Agent</b> để dùng công cụ đặt vé thật (giữ ngữ cảnh qua các câu hỏi).</div>
 </header>
 <main>
   <div class="card">
@@ -406,9 +408,7 @@ INDEX_HTML = """<!DOCTYPE html>
       </div>
     </div>
 
-    <div class="chat" id="chat">
-      <div class="empty-state" id="empty">Bắt đầu cuộc trò chuyện — hỏi một câu về phim/TV. Agent nhớ ngữ cảnh các câu trước.</div>
-    </div>
+    <div class="chat" id="chat"></div>
 
     <div class="row">
       <textarea id="question" placeholder="Nhập tin nhắn… (Ctrl/⌘ + Enter để gửi)"></textarea>
@@ -421,10 +421,17 @@ INDEX_HTML = """<!DOCTYPE html>
 
 <script>
 const DEMOS = [
-  "How many total hours would it take to binge-watch all episodes of Breaking Bad?",
-  "Which has a higher TVmaze rating, Breaking Bad or Game of Thrones, and by how much?",
-  "What is the combined number of episodes of Breaking Bad and Stranger Things?",
+  "Hôm nay có những phim nào đang chiếu?",
+  "Phim Mai có những suất chiếu nào và còn ghế không?",
+  "Đặt 2 vé phim Mai suất 17:30 cho Khai.",
+  "Kiểm tra mã vé BK-ABC123",
 ];
+const WELCOME = "Xin chào! Mình là CinemaBot — trợ lý đặt vé phim của rạp. "
+  + "Mình có thể giúp bạn:\n"
+  + "• Xem các phim đang chiếu hôm nay\n"
+  + "• Kiểm tra suất chiếu, giá vé và ghế trống\n"
+  + "• Đặt vé và tra cứu mã vé\n\n"
+  + "Bạn muốn xem phim gì hôm nay? (Mẹo: chọn chế độ \"Agent\" để đặt vé thật, hoặc bấm một gợi ý bên dưới.)";
 const $ = (id) => document.getElementById(id);
 
 // Running conversation context sent back to the server on every turn.
@@ -465,6 +472,14 @@ function renderTrace(trace) {
     return html + `</div>`;
   }).join("");
   return `<div class="trace"><details><summary>Reasoning trace (${trace.length} steps)</summary>${steps}</details></div>`;
+}
+
+function renderWelcome() {
+  const wrap = document.createElement("div");
+  wrap.className = "msg assistant";
+  wrap.innerHTML = `<div class="who">CinemaBot</div><div class="bubble">${esc(WELCOME)}</div>`;
+  $("chat").appendChild(wrap);
+  scrollToBottom();
 }
 
 function addUserMessage(text) {
@@ -554,7 +569,8 @@ async function ask() {
 
 function clearConversation() {
   history = [];
-  $("chat").innerHTML = `<div class="empty-state" id="empty">Bắt đầu cuộc trò chuyện — hỏi một câu về phim/TV. Agent nhớ ngữ cảnh các câu trước.</div>`;
+  $("chat").innerHTML = "";
+  renderWelcome();
   $("question").focus();
 }
 
@@ -563,6 +579,9 @@ $("clear").onclick = clearConversation;
 $("question").addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") ask();
 });
+
+// Greet the user with an AI message as soon as the page loads.
+renderWelcome();
 </script>
 </body>
 </html>
